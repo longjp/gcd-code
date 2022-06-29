@@ -1,0 +1,689 @@
+---
+title: "Sachs_univariate"
+author: "Hongxu Zhu"
+date: "3/23/2022"
+output:
+  html_document:
+    theme: united
+    toc: yes
+    toc_collapsed: yes
+    toc_float: yes
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,include=FALSE}
+## fits gcd given kronecker product and weight matrix
+GCD_fit <- function(XkrE,X,y,What){
+  A <- t(X)%*%XkrE%*%What%*%t(XkrE)%*%X
+  B <- colSums(t(t(X)%*%XkrE%*%What%*%t(XkrE))*y)
+  solve(A,B)
+}
+
+## computes rowwise kronecker product of A and B
+RowwiseKron <- function(A,B){
+  return(A[,rep(seq(ncol(A)),each = ncol(B)),drop=FALSE]*B[,rep(seq(ncol(B)),ncol(A)),drop=FALSE])
+}
+GCD <- function(E,X,y){
+  ## normalize data
+  n <- nrow(E)
+  E <- t(t(E) - colMeans(E))
+  X <- t(t(X) - colMeans(X))
+  y <- y - mean(y)
+  ## compute X dot E (kronecker product of X and E)
+  XkrE <- RowwiseKron(X,E)
+  ## initial weight matrix, motivated by tsls
+  What <- solve((1/n)*t(XkrE)%*%XkrE)
+  ## in overidentified case, need two steps
+  ## overid case is whenever ncol(E)>1
+  if(ncol(E)>1){
+    betahat <- GCD_fit(XkrE,X,y,What)
+    deltahat <- y - colSums(t(X)*betahat)
+    temp <- XkrE*deltahat
+    What <- solve((1/n)*t(temp)%*%temp)
+  }
+  ## compute estimate and estimate of asymptotic variance
+  betahat <- GCD_fit(XkrE,X,y,What)
+  deltahat <- y - colSums(t(X)*betahat)
+  temp <- XkrE*deltahat
+  V <- t(temp)%*%temp/n
+  M <- -(1/n)*t(XkrE)%*%X
+  betahat_var <- solve(t(M)%*%solve(V)%*%M)/n
+  return(list(coefficients=betahat,
+              cov=betahat_var))
+}
+```
+
+# Description
+
+This is an univariate analysis of Sachs data. Based on the PNAS paper result (Peter Bühlmann et al, 2016) and Sachs paper result (Karren Sachs et al, 2005), we estimate the total causal effect from one variable to another using TSLS and Causal Dantzig. 
+
+The original data was normalized using a hyperbolic function transformation (asinh). This normalization has been used for flow cytometry data before. (Ariful Azad et al, 2016, https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4964071/pdf/12859_2016_Article_1083.pdf).
+
+For each example, we provide the scatter plot which shows the mean and variance change for the intervened variable before and after intervention, and also the change of the other variable which was causal affected. 
+
+```{r, include=FALSE}
+## import the original dataset
+
+## Separate Dataset
+library(readxl)
+folder <- "data/"
+obs1 <- read_excel(paste0(folder,"1. cd3cd28.xls"))
+obs2 <- read_excel(paste0(folder,"2. cd3cd28icam2.xls"))
+obs <- rbind(obs1,obs2)
+con1 <- read_excel(paste0(folder,"3. cd3cd28+aktinhib.xls"))
+con2 <- read_excel(paste0(folder,"4. cd3cd28+g0076.xls"))
+con3 <- read_excel(paste0(folder,"5. cd3cd28+psitect.xls"))
+con4 <- read_excel(paste0(folder,"6. cd3cd28+u0126.xls"))
+con5 <- read_excel(paste0(folder,"7. cd3cd28+ly.xls"))
+con6 <- read_excel(paste0(folder,"8. pma.xls"))
+con7 <- read_excel(paste0(folder,"9. b2camp.xls"))
+
+
+
+# obs1 <- read_excel("C:/Users/User/Downloads/sachs/1. cd3cd28.xls")
+# obs2 <- read_excel("C:/Users/User/Downloads/sachs/2. cd3cd28icam2.xls")
+# obs <- rbind(obs1,obs2)
+# con1 <- read_excel("C:/Users/User/Downloads/sachs/3. cd3cd28+aktinhib.xls")
+# con2 <- read_excel("C:/Users/User/Downloads/sachs/4. cd3cd28+g0076.xls")
+# con3 <- read_excel("C:/Users/User/Downloads/sachs/5. cd3cd28+psitect.xls")
+# con4 <- read_excel("C:/Users/User/Downloads/sachs/6. cd3cd28+u0126.xls")
+# con5 <- read_excel("C:/Users/User/Downloads/sachs/7. cd3cd28+ly.xls")
+# con6 <- read_excel("C:/Users/User/Downloads/sachs/8. pma.xls")
+# con7 <- read_excel("C:/Users/User/Downloads/sachs/9. b2camp.xls")
+
+names(obs) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(obs1) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con1) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con2) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con3) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con4) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con5) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con6) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con7) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+
+obs1t <- asinh(obs1)
+con1t <- asinh(con1)
+con2t <- asinh(con2)
+con3t <- asinh(con3)
+con4t <- asinh(con4)
+con5t <- asinh(con5)
+con6t <- asinh(con6)
+con7t <- asinh(con7)
+library(kableExtra)
+library(AER)
+library(InvariantCausalPrediction)
+library(ggplot2)
+```
+
+# Mean change and variance change after intervention
+
+## Table for mean change
+
+```{r, include=FALSE}
+## checking expression in each environment
+
+mean_obs1t <- c(mean(obs1t$Raf),mean(obs1t$Mek),mean(obs1t$Plcg),mean(obs1t$PIP2),mean(obs1t$PIP3),mean(obs1t$Erk),mean(obs1t$Akt),mean(obs1t$PKA),mean(obs1t$PKC),mean(obs1t$P38),mean(obs1t$Jnk))
+
+mean_c1t <- c(mean(con1t$Raf),mean(con1t$Mek),mean(con1t$Plcg),mean(con1t$PIP2),mean(con1t$PIP3),mean(con1t$Erk),mean(con1t$Akt),mean(con1t$PKA),mean(con1t$PKC),mean(con1t$P38),mean(con1t$Jnk)) ## inhabit akt
+
+mean_c2t <- c(mean(con2t$Raf),mean(con2t$Mek),mean(con2t$Plcg),mean(con2t$PIP2),mean(con2t$PIP3),mean(con2t$Erk),mean(con2t$Akt),mean(con2t$PKA),mean(con2t$PKC),mean(con2t$P38),mean(con2t$Jnk)) ## inhabit pkc
+
+mean_c3t <- c(mean(con3t$Raf),mean(con3t$Mek),mean(con3t$Plcg),mean(con3t$PIP2),mean(con3t$PIP3),mean(con3t$Erk),mean(con3t$Akt),mean(con3t$PKA),mean(con3t$PKC),mean(con3t$P38),mean(con3t$Jnk)) ## inhabit pip2
+
+mean_c4t <- c(mean(con4t$Raf),mean(con4t$Mek),mean(con4t$Plcg),mean(con4t$PIP2),mean(con4t$PIP3),mean(con4t$Erk),mean(con4t$Akt),mean(con4t$PKA),mean(con4t$PKC),mean(con4t$P38),mean(con4t$Jnk)) ## inhabit mek
+
+mean_c5t <- c(mean(con5t$Raf),mean(con5t$Mek),mean(con5t$Plcg),mean(con5t$PIP2),mean(con5t$PIP3),mean(con5t$Erk),mean(con5t$Akt),mean(con5t$PKA),mean(con5t$PKC),mean(con5t$P38),mean(con5t$Jnk)) ## changes PIP2/PIP3 mechanisms
+
+mean_c6t <- c(mean(con6t$Raf),mean(con6t$Mek),mean(con6t$Plcg),mean(con6t$PIP2),mean(con6t$PIP3),mean(con6t$Erk),mean(con6t$Akt),mean(con6t$PKA),mean(con6t$PKC),mean(con6t$P38),mean(con6t$Jnk)) ## activate pkc
+
+mean_c7t <- c(mean(con7t$Raf),mean(con7t$Mek),mean(con7t$Plcg),mean(con7t$PIP2),mean(con7t$PIP3),mean(con7t$Erk),mean(con7t$Akt),mean(con7t$PKA),mean(con7t$PKC),mean(con7t$P38),mean(con7t$Jnk)) ## activate pka
+
+change_m <- data.frame(rbind(round((mean_c1t-mean_obs1t)/mean_obs1t,3),round((mean_c2t-mean_obs1t)/mean_obs1t,3),round((mean_c3t-mean_obs1t)/mean_obs1t,3),round((mean_c4t-mean_obs1t)/mean_obs1t,3)),row.names = c("inhibit Akt","inhibit PKC","inhibit PIP2","inhibit MeK"))
+
+names(change_m) <- c("Raf","Mek","Plc","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+
+######################################################################
+
+var_obs1t <- c(var(obs1t$Raf),var(obs1t$Mek),var(obs1t$Plcg),var(obs1t$PIP2),var(obs1t$PIP3),var(obs1t$Erk),var(obs1t$Akt),var(obs1t$PKA),var(obs1t$PKC),var(obs1t$P38),var(obs1t$Jnk))
+
+var_c1t <- c(var(con1t$Raf),var(con1t$Mek),var(con1t$Plcg),var(con1t$PIP2),var(con1t$PIP3),var(con1t$Erk),var(con1t$Akt),var(con1t$PKA),var(con1t$PKC),var(con1t$P38),var(con1t$Jnk)) ## inhabit akt
+
+var_c2t <- c(var(con2t$Raf),var(con2t$Mek),var(con2t$Plcg),var(con2t$PIP2),var(con2t$PIP3),var(con2t$Erk),var(con2t$Akt),var(con2t$PKA),var(con2t$PKC),var(con2t$P38),var(con2t$Jnk)) ## inhabit pkc
+
+var_c3t <- c(var(con3t$Raf),var(con3t$Mek),var(con3t$Plcg),var(con3t$PIP2),var(con3t$PIP3),var(con3t$Erk),var(con3t$Akt),var(con3t$PKA),var(con3t$PKC),var(con3t$P38),var(con3t$Jnk)) ## inhabit pip2
+
+var_c4t <- c(var(con4t$Raf),var(con4t$Mek),var(con4t$Plcg),var(con4t$PIP2),var(con4t$PIP3),var(con4t$Erk),var(con4t$Akt),var(con4t$PKA),var(con4t$PKC),var(con4t$P38),var(con4t$Jnk)) ## inhabit mek
+
+var_c5t <- c(var(con5t$Raf),var(con5t$Mek),var(con5t$Plcg),var(con5t$PIP2),var(con5t$PIP3),var(con5t$Erk),var(con5t$Akt),var(con5t$PKA),var(con5t$PKC),var(con5t$P38),var(con5t$Jnk)) ## changes PIP2/PIP3 mechanisms
+
+var_c6t <- c(var(con6t$Raf),var(con6t$Mek),var(con6t$Plcg),var(con6t$PIP2),var(con6t$PIP3),var(con6t$Erk),var(con6t$Akt),var(con6t$PKA),var(con6t$PKC),var(con6t$P38),var(con6t$Jnk)) ## activate pkc
+
+var_c7t <- c(var(con7t$Raf),var(con7t$Mek),var(con7t$Plcg),var(con7t$PIP2),var(con7t$PIP3),var(con7t$Erk),var(con7t$Akt),var(con7t$PKA),var(con7t$PKC),var(con7t$P38),var(con7t$Jnk)) ## activate pka
+
+change_v <- data.frame(rbind(round((var_c1t-var_obs1t)/var_obs1t,3),round((var_c2t-var_obs1t)/var_obs1t,3),round((var_c3t-var_obs1t)/var_obs1t,3),round((var_c4t-var_obs1t)/var_obs1t,3)),row.names = c("inhibit Akt","inhibit PKC","inhibit PIP2","inhibit MeK"))
+
+names(change_v) <- c("Raf","Mek","Plc","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+
+```
+
+```{r}
+change_m %>%
+  kbl(caption = "Change of Mean in portion") %>%
+  kable_styling()
+```
+```{r}
+change_v %>%
+  kbl(caption = "Change of Variance in portion") %>%
+  kable_styling()
+```
+
+# Example 1: Interven PIP2
+
+In this section, we show 2 examples using the observational data and the experimental data which a reagent to inhibit PIP2 is applied. From the results of PNAS, Sachs, PIP2 may have causal effects on PIP3, Plcg and PKC.
+
+## Scatter plot 
+
+### PIP2 vs Plcg
+```{r}
+lable <- rep("observational", nrow(obs1t))
+lable_PIP2 <- rep("Condition3", nrow(con3t))
+d2 <- cbind(c(obs1t$Plcg,con3t$Plcg),c(obs1t$PIP2,con3t$PIP2),c(lable,lable_PIP2))
+d2 <- data.frame(d2)
+names(d2) <- c("Plcg", "PIP2", "condition")
+d2$Plcg <- as.numeric(d2$Plcg)
+d2$PIP2 <- as.numeric(d2$PIP2)
+ggplot(d2, aes(x=PIP2, y=Plcg, color=condition)) +
+  geom_point()+ theme(legend.title = element_blank())
+```
+
+The scatter plot shows relations between the expression of PIP2 and Plcg. The orange points reflects the data from the observational dataset, which only the general pertubation "anti-CD3/CD28" is used. The blue points are data from the experimental dataset, which a specific pertubation, "Psitectorigenin" is used to inhibit the expression of PIP2. 
+
+It is clear from the plot that, after the PIP2 inhibitor was applied, the mean of the PIP2 expression was shifted towards 0 significantly, however, the variance doesn't change a lot. 
+
+After PIP2 was inhibited, the mean of the Plcg expression has an upward shift. This plot may indicate that there is a causal effect from PIP2 to Plcg. 
+
+### PIP2 vs PIP3
+
+```{r}
+lable <- rep("Obervational", nrow(obs1t))
+lable_PIP2 <- rep("Condition3", nrow(con3t))
+d2 <- cbind(c(obs1t$PIP3,con3t$PIP3),c(obs1t$PIP2,con3t$PIP2),c(lable,lable_PIP2))
+d2 <- data.frame(d2)
+names(d2) <- c("PIP3", "PIP2", "condition")
+d2$PIP3 <- as.numeric(d2$PIP3)
+d2$PIP2 <- as.numeric(d2$PIP2)
+ggplot(d2, aes(x=PIP2, y=PIP3, color=condition)) +
+  geom_point()+theme(legend.title = element_blank())
+```
+
+This plot also implies a causal effect from PIP2 to PIP3. The change of mean for PIP3 seems smaller than the change for Plcg. 
+
+### PIP2 vs PKC
+
+```{r}
+lable <- rep("CD3/CD28", nrow(obs1t))
+lable_PIP2 <- rep("CD3/CD28+Psitectorigenin", nrow(con3t))
+d2 <- cbind(c(obs1t$PKC,con3t$PKC),c(obs1t$PIP2,con3t$PIP2),c(lable,lable_PIP2))
+d2 <- data.frame(d2)
+names(d2) <- c("PKC", "PIP2", "condition")
+d2$PKC <- as.numeric(d2$PKC)
+d2$PIP2 <- as.numeric(d2$PIP2)
+ggplot(d2, aes(x=PIP2, y=PKC, color=condition)) +
+  geom_point() 
+```
+
+ plot shows that, after inhibit the expression of PIP2, there is no significant mean and variance change for the expression of PKC. Visually, it is doubtful to conclude that PIP2 has causal effect on PKC.
+
+
+## Table for PIP2
+
+The following table is used to show the mean and variance change for PIP2 after the intervention. A significant change in mean may imply good performance of IV approach, and a significant change in variance may imply good performance of CD.
+
+```{r, include=FALSE}
+mPIP2 <- c(mean(obs1t$PIP2),mean(con3t$PIP2),(mean(con3t$PIP2)-mean(obs1t$PIP2))/mean(obs1t$PIP2))
+vPIP2 <- c(var(obs1t$PIP2),var(con3t$PIP2),(var(con3t$PIP2)-var(obs1t$PIP2))/var(obs1t$PIP2))
+tablePIP2 <- data.frame(t(cbind(mPIP2,vPIP2)),row.names = c("mean","variance"))
+names(tablePIP2) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tablePIP2 %>%
+  kbl(caption = "Change of PIP2") %>%
+  kable_styling()
+```
+
+From the table, we observe a significant change in mean, but a relatively small change in variance.
+
+## Table for Plcg
+```{r, include=FALSE}
+mPlcg <- c(mean(obs1t$Plcg),mean(con3t$Plcg),(mean(con3t$Plcg)-mean(obs1t$Plcg))/mean(obs1t$Plcg))
+vPlcg <- c(var(obs1t$Plcg),var(con3t$Plcg),(var(con3t$Plcg)-var(obs1t$Plcg))/var(obs1t$Plcg))
+tablePlcg <- data.frame(t(cbind(mPlcg,vPlcg)),row.names = c("mean","variance"))
+names(tablePlcg) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tablePlcg %>%
+  kbl(caption = "Change of Plcg") %>%
+  kable_styling()
+```
+
+## Table for PIP3
+```{r,include=FALSE}
+mPIP3 <- c(mean(obs1t$PIP3),mean(con3t$PIP3),(mean(con3t$PIP3)-mean(obs1t$PIP3))/mean(obs1t$PIP3))
+vPIP3 <- c(var(obs1t$PIP3),var(con3t$PIP3),(var(con3t$PIP3)-var(obs1t$PIP3))/var(obs1t$PIP3))
+tablePIP3 <- data.frame(t(cbind(mPIP3,vPIP3)),row.names = c("mean","variance"))
+names(tablePIP3) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tablePIP3 %>%
+  kbl(caption = "Change of PIP3") %>%
+  kable_styling()
+```
+
+## Table for PKC
+```{r,include=FALSE}
+mPKC <- c(mean(obs1t$PKC),mean(con3t$PKC),(mean(con3t$PKC)-mean(obs1t$PKC))/mean(obs1t$PKC))
+vPKC <- c(var(obs1t$PKC),var(con3t$PKC),(var(con3t$PKC)-var(obs1t$PKC))/var(obs1t$PKC))
+tablePKC <- data.frame(t(cbind(mPKC,vPKC)),row.names = c("mean","variance"))
+names(tablePKC) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tablePKC %>%
+  kbl(caption = "Change of PKC") %>%
+  kable_styling()
+```
+
+## Estimation of the (total) causal effect 
+
+```{r, include=FALSE}
+## Using IV
+p3 <- rbind(obs1t,con3t)
+E <- rep(1,nrow(p3))
+E[1:nrow(obs1)] <- 0
+p3 <- cbind(p3,E)
+
+
+X <- p3$PIP2
+res1 <- p3$Plcg
+IV1 <- ivreg(res1~X|E)
+summary(IV1)
+
+fit <- lm(res1~X)
+summary(fit)
+
+res2 <- p3$PIP3
+IV2 <- ivreg(res2~X|E)
+summary(IV2)
+
+res3 <- p3$PKC
+IV3 <- ivreg(res3~X|E)
+summary(IV3)
+
+IV_re1 <- IV1$coefficients[2]
+IV_re2 <- IV2$coefficients[2]
+IV_re3 <- IV3$coefficients[2]
+
+fit1 <- lm(res1~X)
+summary(fit1)
+
+fit2 <- lm(res2~X)
+summary(fit2)
+
+## Using CD
+## Centering X, Y before fitting
+
+X_c <- X-mean(X)
+res1_c <- res1-mean(res1)
+res2_c <- res2-mean(res2)
+res3_c <- res3-mean(res3)
+
+CD1 <- hiddenICP(X_c,res1_c,ExpInd = E,alpha=0.1)
+CD1$betahat
+CD1$pvalues
+
+CD2 <- hiddenICP(X_c,res2_c,ExpInd = E,alpha=0.1)
+CD2$betahat
+CD2$pvalues
+
+CD3 <- hiddenICP(X_c,res3_c,ExpInd = E,alpha=0.1)
+CD3$betahat
+CD3$pvalues
+```
+```{r}
+table_re <- data.frame(cbind(c(IV_re1,IV_re2,IV_re3),c(CD1$betahat,CD2$betahat,CD3$betahat)),row.names = c("Plcg","PIP3","PKC"))
+names(table_re) <- c("TSLS","CD")
+table_re %>%
+  kbl() %>%
+  kable_styling()
+```
+
+Note that, the p-values for TSLS for all 3 estimations are less than 0.05, for CD are all close to 1.
+
+
+# Example 2: Interven Mek
+
+## Scatter plot
+
+### Mek vs Raf
+```{r}
+lable <- rep("Observational", nrow(obs1t))
+lable_Mek <- rep("Condition 4", nrow(con4t))
+d2 <- cbind(c(obs1t$Raf,con4t$Raf),c(obs1t$Mek,con4t$Mek),c(lable,lable_Mek))
+d2 <- data.frame(d2)
+names(d2) <- c("Raf", "Mek", "condition")
+d2$Raf <- as.numeric(d2$Raf)
+d2$Mek <- as.numeric(d2$Mek)
+ggplot(d2, aes(x=Mek, y=Raf, color=condition)) +
+  geom_point()+ theme(legend.title = element_blank())
+```
+
+The scatter plot shows relations between the expression of PIP2 and Plcg. The orange points reflects the data from the observational dataset, which only the general pertubation "anti-CD3/CD28" is used. The blue points are data from the experimental dataset, which a specific pertubation, "U0126" is used to inhibit the expression of Mek. Notice that, for Mek, the data measures the anti-boday, so there should be an increase of the mean after the inhibitor was applied. 
+
+It is clear from the plot that, after the Mek inhibitor was applied, the mean of the Mek expression was shifted upward and the the variance also became larger. After Mek was pertubated, the mean of the Raf expression also changed. This plot may indicate a significant causal effect from Mek to Raf. 
+
+### Mek vs Erk
+
+```{r}
+lable <- rep("Observational", nrow(obs1t))
+lable_Mek <- rep("Inhibit Mek", nrow(con4t))
+d2 <- cbind(c(obs1t$Erk,con4t$Erk),c(obs1t$Mek,con4t$Mek),c(lable,lable_Mek))
+d2 <- data.frame(d2)
+names(d2) <- c("Erk", "Mek", "condition")
+d2$Erk <- as.numeric(d2$Erk)
+d2$Mek <- as.numeric(d2$Mek)
+ggplot(d2, aes(x=Mek, y=Erk, color=condition)) +
+  geom_point() 
+```
+
+After the intervention, the mean of Erk has a little downward shift.
+
+## Table for Mek
+```{r,include=FALSE}
+mMek <- c(mean(obs1t$Mek),mean(con4t$Mek),(mean(con4t$Mek)-mean(obs1t$Mek))/mean(obs1t$Mek))
+vMek <- c(var(obs1t$Mek),var(con4t$Mek),(var(con4t$Mek)-var(obs1t$Mek))/var(obs1t$Mek))
+tableMek <- data.frame(t(cbind(mMek,vMek)),row.names = c("mean","variance"))
+names(tableMek) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tableMek %>%
+  kbl(caption = "Change of Mek") %>%
+  kable_styling()
+```
+
+## Table for Raf
+```{r,include=FALSE}
+mRaf <- c(mean(obs1t$Raf),mean(con4t$Raf),(mean(con4t$Raf)-mean(obs1t$Raf))/mean(obs1t$Raf))
+vRaf <- c(var(obs1t$Raf),var(con4t$Raf),(var(con4t$Raf)-var(obs1t$Raf))/var(obs1t$Raf))
+tableRaf <- data.frame(t(cbind(mRaf,vRaf)),row.names = c("mean","variance"))
+names(tableRaf) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tableRaf %>%
+  kbl(caption = "change of Raf") %>%
+  kable_styling()
+```
+## Table for Erk
+```{r,include=FALSE}
+mErk <- c(mean(obs1t$Erk),mean(con4t$Erk),(mean(con4t$Erk)-mean(obs1t$Erk))/mean(obs1t$Erk))
+vErk <- c(var(obs1t$Erk),var(con4t$Erk),(var(con4t$Erk)-var(obs1t$Erk))/var(obs1t$Erk))
+tableErk <- data.frame(t(cbind(mErk,vErk)),row.names = c("mean","variance"))
+names(tableErk) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tableErk %>%
+  kbl(caption = "change of Erk") %>%
+  kable_styling()
+```
+
+## Estimation of the (total) causal effect 
+
+```{r,include=FALSE}
+## Using IV
+p4 <- rbind(obs1t,con4t)
+E <- rep(1,nrow(p4))
+E[1:nrow(obs1)] <- 0
+p4 <- cbind(p4,E)
+
+
+X <- p4$Mek
+res1 <- p4$Raf
+IV1 <- ivreg(res1~X|E)
+summary(IV1)
+
+fit1 <- lm(res1~X)
+summary(fit1)
+
+IV_re1 <- IV1$coefficients[2]
+
+res2 <- p4$Erk
+IV2 <- ivreg(res2~X|E)
+summary(IV2)
+
+IV_re2 <- IV2$coefficients[2]
+
+## Using CD
+
+X_c <- X-mean(X)
+res1_c <- res1-mean(res1)
+res2_c <- res2-mean(res2)
+
+CD1 <- hiddenICP(X_c,res1_c,ExpInd = E,alpha=0.1)
+CD1$betahat
+CD1$pvalues
+
+CD2 <- hiddenICP(X_c,res2_c,ExpInd = E,alpha=0.1)
+CD2$betahat
+CD2$pvalues
+```
+```{r}
+table_re <- data.frame(cbind(c(IV_re1,IV_re2),c(CD1$betahat,CD2$betahat)),row.names = c("Raf","Erk"))
+names(table_re) <- c("TSLS","CD")
+table_re %>%
+  kbl() %>%
+  kable_styling()
+```
+
+Note: the p-value for CD when estimating effect on Erk is larger than 0.05.
+
+# Example 3: Interven Akt
+
+## Scatter plot
+
+### Akt vs Erk
+```{r}
+lable <- rep("CD3/CD28", nrow(obs1t))
+lable_Akt <- rep("CD3/CD28+AKT inhibitor", nrow(con1t))
+d2 <- cbind(c(obs1t$Erk,con1t$Erk),c(obs1t$Akt,con1t$Akt),c(lable,lable_Akt))
+d2 <- data.frame(d2)
+names(d2) <- c("Erk", "Akt", "condition")
+d2$Erk <- as.numeric(d2$Erk)
+d2$Akt <- as.numeric(d2$Akt)
+ggplot(d2, aes(x=Akt, y=Erk, color=condition)) +
+  geom_point() 
+```
+
+## Table for Akt
+```{r, include=FALSE}
+mAkt <- c(mean(obs1t$Akt),mean(con1t$Akt),(mean(con1t$Akt)-mean(obs1t$Akt))/mean(obs1t$Akt))
+vAkt <- c(var(obs1t$Akt),var(con1t$Akt),(var(con1t$Akt)-var(obs1t$Akt))/var(obs1t$Akt))
+tableAkt <- data.frame(t(cbind(mAkt,vAkt)),row.names = c("mean","variance"))
+names(tableAkt) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tableAkt %>%
+  kbl(caption = "Change for Akt") %>%
+  kable_styling()
+```
+
+## Table for Erk
+```{r, include=FALSE}
+mErk <- c(mean(obs1t$Erk),mean(con1t$Erk),(mean(con1t$Erk)-mean(obs1t$Erk))/mean(obs1t$Erk))
+vErk <- c(var(obs1t$Erk),var(con1t$Erk),(var(con1t$Erk)-var(obs1t$Erk))/var(obs1t$Erk))
+tableErk <- data.frame(t(cbind(mErk,vErk)),row.names = c("mean","variance"))
+names(tableErk) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tableErk %>%
+  kbl(caption = "Change for Erk") %>%
+  kable_styling()
+```
+
+## Estimation of the (total) causal effect 
+
+```{r,include=FALSE}
+## Using IV
+p1 <- rbind(obs1t,con1t)
+E <- rep(1,nrow(p1))
+E[1:nrow(obs1)] <- 0
+p1 <- cbind(p1,E)
+
+
+X <- p1$Akt
+res <- p1$Erk
+IV <- ivreg(res~X|E)
+summary(IV)
+
+IV_re <- IV$coefficients[2]
+
+fit1 <- lm(res~X)
+summary(fit1)
+
+## Using CD
+X_c <- X-mean(X)
+res_c <- res-mean(res)
+
+CD <- hiddenICP(X_c,res_c,ExpInd = E,alpha=0.1)
+CD$betahat
+CD$pvalues
+```
+```{r}
+table_re <- data.frame(t(c(IV_re, CD$betahat)),row.names = "Erk")
+names(table_re) <- c("TSLS","CD")
+table_re %>%
+  kbl() %>%
+  kable_styling()
+```
+
+Note: the p-value for CD when estimating effect on Erk is larger than 0.05. For this example, The estimation result from CD may be more trustable, since virtually, the causal effect from Akt to Erk is not obvious, the TSLS estimation which is greater than 1 may be upward biased.
+
+
+# Example 4: Interven PKC
+
+## Scatter plot
+
+### PKC vs Jnk
+```{r}
+lable <- rep("CD3/CD28", nrow(obs1t))
+lable_PKC <- rep("CD3/CD28+G06976", nrow(con2t))
+d2 <- cbind(c(obs1t$Jnk,con2t$Jnk),c(obs1t$PKC,con2t$PKC),c(lable,lable_PKC))
+d2 <- data.frame(d2)
+names(d2) <- c("Jnk", "PKC", "condition")
+d2$Jnk <- as.numeric(d2$Jnk)
+d2$PKC <- as.numeric(d2$PKC)
+ggplot(d2, aes(x=PKC, y=Jnk, color=condition)) +
+  geom_point() 
+```
+### PKC vs Raf
+
+```{r}
+lable <- rep("CD3/CD28", nrow(obs1t))
+lable_PKC <- rep("CD3/CD28+G06976", nrow(con2t))
+d2 <- cbind(c(obs1t$Plcg,con2t$Plcg),c(obs1t$PKC,con2t$PKC),c(lable,lable_PKC))
+d2 <- data.frame(d2)
+names(d2) <- c("Plcg", "PKC", "condition")
+d2$Plcg <- as.numeric(d2$Plcg)
+d2$PKC <- as.numeric(d2$PKC)
+ggplot(d2, aes(x=PKC, y=Plcg, color=condition)) +
+  geom_point() 
+```
+
+## Table for PKC
+```{r,include=FALSE}
+mPKC <- c(mean(obs1t$PKC),mean(con2t$PKC),(mean(con2t$PKC)-mean(obs1t$PKC))/mean(obs1t$PKC))
+vPKC <- c(var(obs1t$PKC),var(con2t$PKC),(var(con2t$PKC)-var(obs1t$PKC))/var(obs1t$PKC))
+tablePKC <- data.frame(t(cbind(mPKC,vPKC)),row.names = c("mean","variance"))
+names(tablePKC) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tablePKC %>%
+  kbl(caption = "Change of PKC") %>%
+  kable_styling()
+```
+
+All of the p-values are close to 0.
+
+## Table for Jnk
+```{r,include=FALSE}
+mJnk <- c(mean(obs1t$Jnk),mean(con2t$Jnk),(mean(con2t$Jnk)-mean(obs1t$Jnk))/mean(obs1t$Jnk))
+vJnk <- c(var(obs1t$Jnk),var(con2t$Jnk),(var(con2t$Jnk)-var(obs1t$Jnk))/var(obs1t$Jnk))
+tableJnk <- data.frame(t(cbind(mJnk,vJnk)),row.names = c("mean","variance"))
+names(tableJnk) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tableJnk %>%
+  kbl(caption = "Change of Jnk") %>%
+  kable_styling()
+```
+## Table for Raf
+```{r,include=FALSE}
+mRaf <- c(mean(obs1t$Raf),mean(con2t$Raf),(mean(con2t$Raf)-mean(obs1t$Raf))/mean(obs1t$Raf))
+vRaf <- c(var(obs1t$Raf),var(con2t$Raf),(var(con2t$Raf)-var(obs1t$Raf))/var(obs1t$Raf))
+tableRaf <- data.frame(t(cbind(mRaf,vRaf)),row.names = c("mean","variance"))
+names(tableRaf) <- c("before intervention", "after intervention", "the proportion of change")
+```
+```{r}
+tableRaf %>%
+  kbl(caption = "Change of Raf") %>%
+  kable_styling()
+```
+
+## Estimation of the (total) causal effect 
+
+```{r,include=FALSE}
+## Using IV
+p2 <- rbind(obs1t,con2t)
+E <- rep(1,nrow(p2))
+E[1:nrow(obs1t)] <- 0
+p2 <- cbind(p2,E)
+
+
+X <- p2$PKC
+res1 <- p2$Jnk
+IV1 <- ivreg(res1~X|E)
+summary(IV1)
+
+IV_re1 <- IV1$coefficients[2]
+
+res2 <- p2$Raf
+IV2 <- ivreg(res2~X|E)
+summary(IV2)
+
+IV_re2 <- IV2$coefficients[2]
+
+## Using CD
+X_c <- X-mean(X)
+res1_c <- res1-mean(res1)
+res2_c <- res2-mean(res2)
+
+CD1 <- hiddenICP(X_c,res1_c,ExpInd = E,alpha=0.1)
+CD1$betahat
+CD1$pvalues
+
+CD2 <- hiddenICP(X_c,res2_c,ExpInd = E,alpha=0.1)
+CD2$betahat
+CD2$pvalues
+```
+```{r}
+table_re <- data.frame(cbind(c(IV_re1,IV_re2),c(CD1$betahat,CD2$betahat)),row.names = c("Jnk","Raf"))
+names(table_re) <- c("TSLS","CD")
+table_re %>%
+  kbl() %>%
+  kable_styling()
+```
+
+# Conclusion
+
+For all those 4 examples, we may conclude that, in the univariate case, when the change of mean for the input variable is small, TSLS tend to have biased estimation (example 3), when the change of variance for the input variable is small, CD may not work well (example 1). 

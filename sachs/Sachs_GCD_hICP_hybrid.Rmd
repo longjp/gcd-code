@@ -1,0 +1,960 @@
+---
+title: "Sachs_GCD_hICP Hybrid"
+author: "Hongxu Zhu and James Long"
+date: "5/23/2022"
+output:
+  html_document:
+    theme: united
+    toc: yes
+    toc_collapsed: yes
+    toc_float: yes
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(kableExtra)
+library(AER)
+library(InvariantCausalPrediction)
+library(ggplot2)
+library(readxl)
+```
+
+# Summary
+
+* Code is adapted from Sachs_GCD_hICP.Rmd
+* Removed non-centered model fits
+* Included argument for fitting hybrid estimator (see `hybrid <- TRUE`)
+    * Probably best to compare CD with hybrid in real data section because hybrid can directly leverage fact that some variables have change in mean but not variance
+    
+    
+## TODO
+
+* Need to Update GCD graphical model because now using hybrid fit
+* Eliminate non-standardized fits
+    * Currently GCD is being fit with both standardized and non-standardized (variance set to 1) predictors. Was there any difference in fit quality? Probably should only include standardized
+* Suggestion for Table for multivariate analysis:
+    * Columns for CD and Hybrid Estimator and one rows for each marker other than PIP2. Entries of table will have cofficient with 95\% CI for effect of PIP2 on marker. hiddenICP will not find any effect (which is clearly wrong based on our univariate analysis) but hybrid estimator will find several significant effects.
+* Once code is complete, can move this and univariate analysis into iv-cd-comp folder
+
+# Read / Setup Data
+
+```{r}
+## in folder iv-cd-comp
+## functions for fitting the GCD and hybrid estimator
+
+## fits gcd given kronecker product and weight matrix
+GCD_fit <- function(XkrE,X,y,What){
+  A <- t(X)%*%XkrE%*%What%*%t(XkrE)%*%X
+  B <- colSums(t(t(X)%*%XkrE%*%What%*%t(XkrE))*y)
+  solve(A,B)
+}
+
+## computes rowwise kronecker product of A and B
+RowwiseKron <- function(A,B){
+  return(A[,rep(seq(ncol(A)),each = ncol(B)),drop=FALSE]*B[,rep(seq(ncol(B)),ncol(A)),drop=FALSE])
+}
+
+## fits GCD or hybrid (CD + IV constraints) estimator
+##
+## note: in overidentified case (where number of constraints
+## exceeds number of predictors), the estimator implements a
+## two step algorithm for estimating the optimal weight matrix.
+## this two step estimator uses a two stage least squares like
+## initial estimate of the weight matrix W
+##
+## returns point estimates and covariance matrix
+##
+##
+## arguments
+##       E : n x q matrix containing instruments/environments
+##       X : n x p matrix of predictors
+##       y : length n vector with response
+##  center : should y and X columns be set to mean 0
+##  hybrid : should instrumental variable constraints be added to estimator
+##
+##  note on coding E: if using r environments 0, 1, . . ., r-1
+##                    column j of E should be 1 if
+##                    observation is environment j, 0 o.w.
+GCD <- function(E,X,y,center=TRUE,hybrid=FALSE){
+  ## normalize data
+  n <- nrow(E)
+  E <- t(t(E) - colMeans(E))
+  if(center){
+    X <- t(t(X) - colMeans(X))
+    y <- y - mean(y)
+  }
+  ## compute X dot E (kronecker product of X and E)
+  XkrE <- RowwiseKron(X,E)
+  ## for hybrid estimator, IV orthogonality constraints are added
+  if(hybrid){
+    XkrE <- cbind(XkrE,E)
+  }
+  ## initial weight matrix, motivated by tsls
+  What <- solve((1/n)*t(XkrE)%*%XkrE)
+  ## in overidentified case, need two steps
+  if(ncol(XkrE)>ncol(X)){
+    betahat <- GCD_fit(XkrE,X,y,What)
+    deltahat <- y - colSums(t(X)*betahat)
+    temp <- XkrE*deltahat
+    What <- solve((1/n)*t(temp)%*%temp)
+  }
+  ## compute estimate and estimate of asymptotic variance
+  betahat <- GCD_fit(XkrE,X,y,What)
+  deltahat <- y - colSums(t(X)*betahat)
+  temp <- XkrE*deltahat
+  V <- t(temp)%*%temp/n
+  M <- -(1/n)*t(XkrE)%*%X
+  betahat_var <- solve(t(M)%*%solve(V)%*%M)/n
+  return(list(coefficients=betahat,
+              cov=betahat_var))
+}
+```
+
+
+```{r, include=FALSE}
+## import the original dataset
+
+## Separate Dataset
+##folder <- "C:/Users/User/Downloads/sachs/"
+folder <- "data/"
+obs1 <- read_excel(paste0(folder,"1. cd3cd28.xls"))
+obs2 <- read_excel(paste0(folder,"2. cd3cd28icam2.xls"))
+obs <- rbind(obs1,obs2)
+con1 <- read_excel(paste0(folder,"3. cd3cd28+aktinhib.xls"))
+con2 <- read_excel(paste0(folder,"4. cd3cd28+g0076.xls"))
+con3 <- read_excel(paste0(folder,"5. cd3cd28+psitect.xls"))
+con4 <- read_excel(paste0(folder,"6. cd3cd28+u0126.xls"))
+con5 <- read_excel(paste0(folder,"7. cd3cd28+ly.xls"))
+con6 <- read_excel(paste0(folder,"8. pma.xls"))
+con7 <- read_excel(paste0(folder,"9. b2camp.xls"))
+
+names(obs) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(obs1) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con1) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con2) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con3) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con4) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con5) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con6) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+names(con7) <- c("Raf","Mek","Plcg","PIP2","PIP3","Erk","Akt","PKA","PKC","P38","Jnk")
+
+obs1t <- asinh(obs1)
+con1t <- asinh(con1)
+con2t <- asinh(con2)
+con3t <- asinh(con3)
+con4t <- asinh(con4)
+con5t <- asinh(con5)
+con6t <- asinh(con6)
+con7t <- asinh(con7)
+```
+
+```{r, include=FALSE}
+## combine dataset to fit GCD, including 4 conditions
+
+sachs_GCD <- data.frame(rbind(obs1t,con1t,con2t,con3t,con4t))
+sachs_Akt <- data.frame(rbind(obs1t,con2t,con3t,con4t))
+sachs_PKC <- data.frame(rbind(obs1t,con1t,con3t,con4t))
+sachs_PIP2 <- data.frame(rbind(obs1t,con1t,con2t,con4t))
+sachs_Mek <- data.frame(rbind(obs1t,con1t,con2t,con3t))
+
+
+## code for environment matrix
+E1 <- numeric(nrow(sachs_GCD))
+E1[(nrow(obs1t)+1):(nrow(obs1t)+nrow(con1t))] <- 1
+
+E2 <- numeric(nrow(sachs_GCD))
+E2[(nrow(obs1t)+nrow(con1t)+1):(nrow(obs1t)+nrow(con1t)+nrow(con2t))] <- 1
+
+E3 <- numeric(nrow(sachs_GCD))
+E3[(nrow(obs1t)+nrow(con1t)+nrow(con2t)+1):(nrow(obs1t)+nrow(con1t)+nrow(con2t)+nrow(con3t))] <- 1
+
+E4 <- numeric(nrow(sachs_GCD))
+E4[(nrow(obs1t)+nrow(con1t)+nrow(con2t)+nrow(con3t)+1): length(E4)] <- 1
+
+E <- as.matrix(cbind(E1,E2,E3,E4))
+
+## intervened dataset
+E_Akt <- E[-c((nrow(obs1t)+1):(nrow(obs1t)+nrow(con1t))),-1]
+E_PKC <- E[-c((nrow(obs1t)+nrow(con1t)+1):(nrow(obs1t)+nrow(con1t)+nrow(con2t))),-2]
+E_PIP2 <- E[-c((nrow(obs1t)+nrow(con1t)+nrow(con2t)+1):(nrow(obs1t)+nrow(con1t)+nrow(con2t)+nrow(con3t))),-3]
+E_Mek <- E[-c((nrow(obs1t)+nrow(con1t)+nrow(con2t)+nrow(con3t)+1):nrow(sachs_GCD)),-4]
+```
+
+
+# Helper Functions for GCD
+
+```{r}
+##function to get p value and confidence intervals from GCD
+
+GCD_p <- function (Eff, Var, df){
+  pvalue <- rep(1,length(Eff))
+  pvalue <- pmin(pvalue,2*(1-pt(abs(Eff)/pmax(10^(-10),sqrt(Var)),df=df)))
+  return(pvalue)
+}
+
+GCD_CI <- function (Eff, Var, df){
+  add <- qt(1-0.05/2,df)*sqrt(Var)
+  CI <- matrix(nrow=2,ncol=length(Eff))
+  CI[1,] <- Eff-add
+  CI[2,] <- Eff+add
+  CI <- data.frame(CI)
+  names(CI) <- names(Eff)
+  return(CI)
+}
+```
+
+
+# Fit GCD
+
+
+Should hybrid version of GCD be fit which imposes for IV and CD constraints
+
+```{r}
+hybrid <- TRUE
+gcd <- FALSE
+```
+
+```{r}
+## Fit hybrid for each marker
+
+## for Raf
+y <- sachs_GCD$Raf
+X <- sachs_GCD[,-1]
+
+gcd_Raf <- GCD(E,X,y,center=TRUE,hybrid=hybrid)
+Eff <- gcd_Raf$coefficients
+Var <- diag(gcd_Raf$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_Raf <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Raf <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Rafh <- data.frame(rbind(p_Raf,round(Eff,3),CI_Raf),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for Mek
+
+y <- sachs_Mek$Mek
+X <- sachs_Mek[,-2]
+
+gcd_Mek <- GCD(E_Mek,X,y,center=TRUE,hybrid=hybrid)
+Eff <- gcd_Mek$coefficients
+Var <- diag(gcd_Mek$cov)
+df <- nrow(sachs_Mek)-1
+K <- ncol(E_Mek)
+
+p_Mek <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Mek <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Mekh <- data.frame(rbind(p_Mek,round(Eff,3),CI_Mek),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+
+## for Plcg
+
+y <- sachs_GCD$Plcg
+X <- sachs_GCD[,-3]
+
+gcd_Plcg <- GCD(E,X,y,center=TRUE,hybrid=hybrid)
+Eff <- gcd_Plcg$coefficients
+Var <- diag(gcd_Plcg$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_Plcg <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Plcg <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Plcgh <- data.frame(rbind(p_Plcg,round(Eff,3),CI_Plcg),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+
+## for PIP2
+
+y <- sachs_PIP2$PIP2
+X <- sachs_PIP2[,-4]
+
+gcd_PIP2 <- GCD(E_PIP2,X,y,center=TRUE,hybrid=hybrid)
+Eff <- gcd_PIP2$coefficients
+Var <- diag(gcd_PIP2$cov)
+df <- nrow(sachs_PIP2)-1
+K <- ncol(E_PIP2)
+
+p_PIP2 <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_PIP2 <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_PIP2h <- data.frame(rbind(p_PIP2,round(Eff,3),CI_PIP2),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+
+## for PIP3
+
+y <- sachs_GCD$PIP3
+X <- sachs_GCD[,-5]
+
+gcd_PIP3 <- GCD(E,X,y,center=TRUE,hybrid=hybrid)
+Eff <- gcd_PIP3$coefficients
+Var <- diag(gcd_PIP3$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_PIP3 <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_PIP3 <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_PIP3h <- data.frame(rbind(p_PIP3,round(Eff,3),CI_PIP3),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for Erk
+
+y <- sachs_GCD$Erk
+X <- sachs_GCD[,-6]
+
+gcd_Erk <- GCD(E,X,y,center=TRUE,hybrid=hybrid)
+Eff <- gcd_Erk$coefficients
+Var <- diag(gcd_Erk$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_Erk <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Erk <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Erkh <- data.frame(rbind(p_Erk,round(Eff,3),CI_Erk),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for Akt
+
+y <- sachs_Akt$Akt
+X <- sachs_Akt[,-7]
+
+gcd_Akt <- GCD(E_Akt,X,y,center=TRUE,hybrid=hybrid)
+Eff <- gcd_Akt$coefficients
+Var <- diag(gcd_Akt$cov)
+df <- nrow(sachs_Akt)-1
+K <- ncol(E_Akt)
+
+p_Akt <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Akt <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Akth <- data.frame(rbind(p_Akt,round(Eff,3),CI_Akt),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for PKA
+
+y <- sachs_GCD$PKA
+X <- sachs_GCD[,-8]
+
+gcd_PKA <- GCD(E,X,y,center=TRUE,hybrid=hybrid)
+Eff <- gcd_PKA$coefficients
+Var <- diag(gcd_PKA$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_PKA <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_PKA <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_PKAh <- data.frame(rbind(p_PKA,round(Eff,3),CI_PKA),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for PKC
+
+y <- sachs_PKC$PKC
+X <- sachs_PKC[,-9]
+
+gcd_PKC <- GCD(E_PKC,X,y,center=TRUE,hybrid=hybrid)
+Eff <- gcd_PKC$coefficients
+Var <- diag(gcd_PKC$cov)
+df <- nrow(sachs_PKC)-1
+K <- ncol(E_PKC)
+
+p_PKC <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_PKC <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_PKCh <- data.frame(rbind(p_PKC,round(Eff,3),CI_PKC),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for P38
+
+y <- sachs_GCD$P38
+X <- sachs_GCD[,-10]
+
+gcd_P38 <- GCD(E,X,y,center=TRUE,hybrid=hybrid)
+Eff <- gcd_P38$coefficients
+Var <- diag(gcd_P38$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_P38 <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_P38 <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_P38h <- data.frame(rbind(p_P38,round(Eff,3),CI_P38),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+
+## for Jnk
+
+y <- sachs_GCD$Jnk
+X <- sachs_GCD[,-11]
+
+gcd_Jnk <- GCD(E,X,y,center=TRUE,hybrid=hybrid)
+Eff <- gcd_Jnk$coefficients
+Var <- diag(gcd_Jnk$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_Jnk <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Jnk <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Jnkh <- data.frame(rbind(p_Jnk,round(Eff,3),CI_Jnk),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+```
+
+```{r}
+## Fit GCD for each marker
+
+## for Raf
+y <- sachs_GCD$Raf
+X <- sachs_GCD[,-1]
+
+gcd_Raf <- GCD(E,X,y,center=TRUE,hybrid=gcd)
+Eff <- gcd_Raf$coefficients
+Var <- diag(gcd_Raf$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_Raf <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Raf <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Rafg <- data.frame(rbind(p_Raf,round(Eff,3),CI_Raf),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for Mek
+
+y <- sachs_Mek$Mek
+X <- sachs_Mek[,-2]
+
+gcd_Mek <- GCD(E_Mek,X,y,center=TRUE,hybrid=gcd)
+Eff <- gcd_Mek$coefficients
+Var <- diag(gcd_Mek$cov)
+df <- nrow(sachs_Mek)-1
+K <- ncol(E_Mek)
+
+p_Mek <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Mek <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Mekg <- data.frame(rbind(p_Mek,round(Eff,3),CI_Mek),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+
+## for Plcg
+
+y <- sachs_GCD$Plcg
+X <- sachs_GCD[,-3]
+
+gcd_Plcg <- GCD(E,X,y,center=TRUE,hybrid=gcd)
+Eff <- gcd_Plcg$coefficients
+Var <- diag(gcd_Plcg$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_Plcg <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Plcg <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Plcgg <- data.frame(rbind(p_Plcg,round(Eff,3),CI_Plcg),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+
+## for PIP2
+
+y <- sachs_PIP2$PIP2
+X <- sachs_PIP2[,-4]
+
+gcd_PIP2 <- GCD(E_PIP2,X,y,center=TRUE,hybrid=gcd)
+Eff <- gcd_PIP2$coefficients
+Var <- diag(gcd_PIP2$cov)
+df <- nrow(sachs_PIP2)-1
+K <- ncol(E_PIP2)
+
+p_PIP2 <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_PIP2 <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_PIP2g <- data.frame(rbind(p_PIP2,round(Eff,3),CI_PIP2),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+
+## for PIP3
+
+y <- sachs_GCD$PIP3
+X <- sachs_GCD[,-5]
+
+gcd_PIP3 <- GCD(E,X,y,center=TRUE,hybrid=gcd)
+Eff <- gcd_PIP3$coefficients
+Var <- diag(gcd_PIP3$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_PIP3 <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_PIP3 <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_PIP3g <- data.frame(rbind(p_PIP3,round(Eff,3),CI_PIP3),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for Erk
+
+y <- sachs_GCD$Erk
+X <- sachs_GCD[,-6]
+
+gcd_Erk <- GCD(E,X,y,center=TRUE,hybrid=gcd)
+Eff <- gcd_Erk$coefficients
+Var <- diag(gcd_Erk$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_Erk <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Erk <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Erkg <- data.frame(rbind(p_Erk,round(Eff,3),CI_Erk),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for Akt
+
+y <- sachs_Akt$Akt
+X <- sachs_Akt[,-7]
+
+gcd_Akt <- GCD(E_Akt,X,y,center=TRUE,hybrid=gcd)
+Eff <- gcd_Akt$coefficients
+Var <- diag(gcd_Akt$cov)
+df <- nrow(sachs_Akt)-1
+K <- ncol(E_Akt)
+
+p_Akt <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Akt <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Aktg <- data.frame(rbind(p_Akt,round(Eff,3),CI_Akt),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for PKA
+
+y <- sachs_GCD$PKA
+X <- sachs_GCD[,-8]
+
+gcd_PKA <- GCD(E,X,y,center=TRUE,hybrid=gcd)
+Eff <- gcd_PKA$coefficients
+Var <- diag(gcd_PKA$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_PKA <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_PKA <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_PKAg <- data.frame(rbind(p_PKA,round(Eff,3),CI_PKA),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for PKC
+
+y <- sachs_PKC$PKC
+X <- sachs_PKC[,-9]
+
+gcd_PKC <- GCD(E_PKC,X,y,center=TRUE,hybrid=gcd)
+Eff <- gcd_PKC$coefficients
+Var <- diag(gcd_PKC$cov)
+df <- nrow(sachs_PKC)-1
+K <- ncol(E_PKC)
+
+p_PKC <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_PKC <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_PKCg <- data.frame(rbind(p_PKC,round(Eff,3),CI_PKC),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+## for P38
+
+y <- sachs_GCD$P38
+X <- sachs_GCD[,-10]
+
+gcd_P38 <- GCD(E,X,y,center=TRUE,hybrid=gcd)
+Eff <- gcd_P38$coefficients
+Var <- diag(gcd_P38$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_P38 <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_P38 <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_P38g <- data.frame(rbind(p_P38,round(Eff,3),CI_P38),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+
+## for Jnk
+
+y <- sachs_GCD$Jnk
+X <- sachs_GCD[,-11]
+
+gcd_Jnk <- GCD(E,X,y,center=TRUE,hybrid=gcd)
+Eff <- gcd_Jnk$coefficients
+Var <- diag(gcd_Jnk$cov)
+df <- nrow(sachs_GCD)-1
+K <- ncol(E)
+
+p_Jnk <- round(GCD_p(Eff,Var,df),digits = 3)
+CI_Jnk <- round(GCD_CI(Eff,Var,df),digits = 3)
+
+result_Jnkg <- data.frame(rbind(p_Jnk,round(Eff,3),CI_Jnk),row.names = c("P-value","coefficient","CI low", "CI up"))
+
+```
+
+
+
+```{r}
+##DAG found by GCD with centering
+
+library(DiagrammeR)
+grViz("
+      digraph dig1{
+      graph [overlap = true, fontsize = 10]
+      node [shape = circle]
+      Raf;Mek;Plcg;PIP2;PIP3;Erk;Akt;PKA;PKC;P38;Jnk
+      Mek [style = filled, fillcolor = red]
+      PIP2 [style = filled, fillcolor = red]
+      Akt [style = filled, fillcolor = red]
+      PKC [style = filled, fillcolor = red]
+      edge [color = purple]
+      {Plcg PIP3 Erk Akt P38 Jnk} -> PKC
+      {Mek Plcg PIP2 PIP3 Erk PKA} -> Akt
+      {Mek Plcg PIP2 PIP3 Akt PKA PKC P38 Jnk} -> Erk
+      {Raf Jnk} -> Mek
+      {Mek Erk Akt PKC P38 Jnk} -> Raf
+      {Mek PIP2 PIP3 Erk Akt PKA Jnk} -> Plcg
+      {Plcg PIP2 PIP3 Erk Akt} ->PKA
+      {Mek PIP2 Erk Akt PKA} -> PIP3
+      {Plcg PIP3 Erk PKA PKC} -> PIP2
+      {Mek PIP2 PIP3 Erk Akt PKA PKC Jnk} -> P38
+      {Mek Plcg PIP3 Erk PKA P38} -> Jnk
+      }
+      [1]: object1
+      ")
+```
+
+
+
+# Fit Hidden ICP
+
+```{r}
+library(InvariantCausalPrediction)
+
+E_cd_f <- rep(0,nrow(sachs_GCD))
+E_cd_f[(nrow(obs1t)+1):(nrow(obs1t)+nrow(con1t))] <- 1
+E_cd_f[(nrow(obs1t)+nrow(con1t)+1):(nrow(obs1t)+nrow(con1t)+nrow(con2t))] <- 2
+E_cd_f[(nrow(obs1t)+nrow(con1t)+nrow(con2t)+1):(nrow(obs1t)+nrow(con1t)+nrow(con2t)+nrow(con3t))] <- 3
+E_cd_f[(nrow(obs1t)+nrow(con1t)+nrow(con2t)+nrow(con3t)+1): nrow(sachs_GCD)]<-4
+
+E_cd_Akt <- rep(0,nrow(sachs_Akt))
+E_cd_Akt[(nrow(obs1t)+1):(nrow(obs1t)+nrow(con2t))] <- 1
+E_cd_Akt[(nrow(obs1t)+nrow(con2t)+1):(nrow(obs1t)+nrow(con2t)+nrow(con3t))] <- 2
+E_cd_Akt[(nrow(obs1t)+nrow(con2t)+nrow(con3t)+1): nrow(sachs_Akt)]<-3
+
+E_cd_PKC <- rep(0,nrow(sachs_PKC))
+E_cd_PKC[(nrow(obs1t)+1):(nrow(obs1t)+nrow(con1t))] <- 1
+E_cd_PKC[(nrow(obs1t)+nrow(con1t)+1):(nrow(obs1t)+nrow(con1t)+nrow(con3t))] <- 2
+E_cd_PKC[(nrow(obs1t)+nrow(con1t)+nrow(con3t)+1): nrow(sachs_PKC)]<-3
+
+E_cd_PIP2 <- rep(0,nrow(sachs_PIP2))
+E_cd_PIP2[(nrow(obs1t)+1):(nrow(obs1t)+nrow(con1t))] <- 1
+E_cd_PIP2[(nrow(obs1t)+nrow(con1t)+1):(nrow(obs1t)+nrow(con1t)+nrow(con2t))] <- 2
+E_cd_PIP2[(nrow(obs1t)+nrow(con1t)+nrow(con2t)+1): nrow(sachs_PIP2)]<-3
+
+E_cd_Mek <- rep(0,nrow(sachs_Mek))
+E_cd_Mek[(nrow(obs1t)+1):(nrow(obs1t)+nrow(con1t))] <- 1
+E_cd_Mek[(nrow(obs1t)+nrow(con1t)+1):(nrow(obs1t)+nrow(con1t)+nrow(con2t))] <- 2
+E_cd_Mek[(nrow(obs1t)+nrow(con1t)+nrow(con2t)+1): nrow(sachs_Mek)]<-3
+```
+
+```{r}
+## CD centering
+
+center <- function(x){
+  x_c <- x-mean(x)
+  return(x_c)
+}
+
+## Raf
+
+y <- as.numeric(sachs_GCD$Raf)
+X <- as.matrix(sachs_GCD[,-1])
+
+y_c <- center(y)
+X_c <- apply(X,2,center)
+
+hICP_Raf <- hiddenICP(X_c,y_c,ExpInd = E_cd_f,alpha=0.1)
+
+## Mek
+
+y <- as.numeric(sachs_Mek$Mek)
+X <- as.matrix(sachs_Mek[,-2])
+
+y_c <- center(y)
+X_c <- apply(X,2,center)
+
+hICP_Mek <-hiddenICP(X_c,y_c,ExpInd = E_cd_Mek,alpha=0.1)
+
+## Plcg
+
+y <- as.numeric(sachs_GCD$Plcg)
+X <- as.matrix(sachs_GCD[,-3])
+
+y_c <- center(y)
+X_c <- apply(X,2,center)
+
+hICP_Plcg <-hiddenICP(X_c,y_c,ExpInd = E_cd_f,alpha=0.1)
+
+## PIP2
+
+y <- as.numeric(sachs_PIP2$PIP2)
+X <- as.matrix(sachs_PIP2[,-4])
+
+y_c <- center(y)
+X_c <- apply(X,2,center)
+
+hICP_PIP2 <-hiddenICP(X_c,y_c,ExpInd = E_cd_PIP2,alpha=0.1)
+
+## PIP3
+
+y <- as.numeric(sachs_GCD$PIP3)
+X <- as.matrix(sachs_GCD[,-5])
+
+y_c <- center(y)
+X_c <- apply(X,2,center)
+
+hICP_PIP3 <-hiddenICP(X_c,y_c,ExpInd = E_cd_f,alpha=0.1)
+
+## Erk
+
+y <- as.numeric(sachs_GCD$Erk)
+X <- as.matrix(sachs_GCD[,-6])
+
+y_c <- center(y)
+X_c <- apply(X,2,center)
+
+hICP_Erk <-hiddenICP(X_c,y_c,ExpInd = E_cd_f,alpha=0.1)
+
+## Akt
+
+y <- as.numeric(sachs_Akt$Akt)
+X <- as.matrix(sachs_Akt[,-7])
+
+y_c <- center(y)
+X_c <- apply(X,2,center)
+
+hICP_Akt <-hiddenICP(X_c,y_c,ExpInd = E_cd_Akt,alpha=0.1)
+
+## PKA
+
+y <- as.numeric(sachs_GCD$PKA)
+X <- as.matrix(sachs_GCD[,-8])
+
+y_c <- center(y)
+X_c <- apply(X,2,center)
+
+hICP_PKA <-hiddenICP(X_c,y_c,ExpInd = E_cd_f,alpha=0.1)
+
+## PKC
+
+y <- as.numeric(sachs_PKC$PKC)
+X <- as.matrix(sachs_PKC[,-9])
+
+y_c <- center(y)
+X_c <- apply(X,2,center)
+
+hICP_PKC <-hiddenICP(X_c,y_c,ExpInd = E_cd_PKC,alpha=0.1)
+
+## P38
+
+y <- as.numeric(sachs_GCD$P38)
+X <- as.matrix(sachs_GCD[,-10])
+
+y_c <- center(y)
+X_c <- apply(X,2,center)
+
+hICP_P38 <-hiddenICP(X_c,y_c,ExpInd = E_cd_f,alpha=0.1)
+
+## Jnk
+
+y <- as.numeric(sachs_GCD$Jnk)
+X <- as.matrix(sachs_GCD[,-11])
+
+y_c <- center(y)
+X_c <- apply(X,2,center)
+
+hICP_Jnk <-hiddenICP(X_c,y_c,ExpInd = E_cd_f,alpha=0.1)
+```
+
+```{r}
+library(DiagrammeR)
+grViz("
+      digraph dig1{
+      graph [overlap = true, fontsize = 10]
+      node [shape = circle]
+      Raf;Mek;Plcg;PIP2;PIP3;Erk;Akt;PKA;PKC;P38;Jnk
+      Mek [style = filled, fillcolor = red]
+      PIP2 [style = filled, fillcolor = red]
+      Akt [style = filled, fillcolor = red]
+      PKC [style = filled, fillcolor = red]
+      edge [color = black, minlen = 1]
+      {Plcg Erk Akt P38} -> PKC
+      {Mek Erk PKA} -> Akt
+      {Mek Akt PKA P38 Jnk} -> Erk
+       Raf -> Mek
+      {Mek} -> Raf
+      {Akt PIP3} ->PKA
+      {PIP3} -> PIP2
+      {PIP3 PKC Jnk} -> P38
+      {P38} -> Jnk
+      PIP2 -> PIP3
+      {PIP2 PKA} -> Plcg
+      }
+      [1]: object1
+      ")
+```
+
+```{r}
+### Plot hybrid vs CD, Plcg
+lable1 <- rep("Hybrid", 10)
+lable2 <- rep("CD", 10)
+coeff <- data.frame(cbind(c(as.numeric(result_Plcgh[2,]),as.numeric(hICP_Plcg$betahat)),c(lable1,lable2)))
+CI <- data.frame(cbind(c(result_Plcgh[4,],hICP_Plcg$ConfInt[1,]),c(result_Plcgh[3,],hICP_Plcg$ConfInt[2,]),c(lable1,lable2)))
+
+d1 <- data.frame(cbind(coeff[,1],CI))
+x <- rep(row.names(d1[1:10,]),2)
+d1 <- data.frame(cbind(x,d1))
+names(d1) <- c("name","Coefficient","CI_up","CI_Low","method")
+d1$Coefficient=as.numeric(d1$Coefficient)
+d1$CI_Low = as.numeric(d1$CI_Low)
+d1$CI_up = as.numeric(d1$CI_up)
+d1$method = as.character(d1$method)
+
+hybrid_cd_plcg <- d1
+
+ggplot(d1, aes(x=name, y=Coefficient,color=method))+geom_errorbar(width=.1, aes(ymin=CI_Low,ymax=CI_up),position = "dodge")+scale_x_discrete()+ coord_cartesian(ylim = c(-0.5,0.5))+geom_hline(yintercept = 0.2,color="grey",linetype="dashed")+geom_hline(yintercept = -0.2,color="grey",linetype="dashed")+theme(legend.title = element_blank())+theme(axis.title.x = element_blank())
+```
+
+
+
+```{r}
+### Plot hybrid vs CD, PIP3
+lable1 <- rep("Hybrid", 10)
+lable2 <- rep("CD", 10)
+coeff <- data.frame(cbind(c(as.numeric(result_PIP3h[2,]),as.numeric(hICP_PIP3$betahat)),c(lable1,lable2)))
+CI <- data.frame(cbind(c(result_PIP3h[4,],hICP_PIP3$ConfInt[1,]),c(result_PIP3h[3,],hICP_PIP3$ConfInt[2,]),c(lable1,lable2)))
+
+d1 <- data.frame(cbind(coeff[,1],CI))
+x <- rep(row.names(d1[1:10,]),2)
+d1 <- data.frame(cbind(x,d1))
+names(d1) <- c("name","Coefficient","CI_up","CI_Low","method")
+d1$Coefficient=as.numeric(d1$Coefficient)
+d1$CI_Low = as.numeric(d1$CI_Low)
+d1$CI_up = as.numeric(d1$CI_up)
+d1$method = as.character(d1$method)
+
+hybrid_cd_pip3 <- d1
+
+ggplot(d1, aes(x=name, y=Coefficient,color=method))+geom_errorbar(width=.1, aes(ymin=CI_Low,ymax=CI_up),position = "dodge")+scale_x_discrete()+ coord_cartesian(ylim = c(-0.5,0.5))+geom_hline(yintercept = 0.2,color="grey",linetype="dashed")+geom_hline(yintercept = -0.2,color="grey",linetype="dashed")+theme(legend.title = element_blank())+theme(axis.title.x = element_blank())
+```
+
+```{r}
+### Plot hybrid vs GCD, Plcg
+lable1 <- rep("Hybrid", 10)
+lable2 <- rep("GCD", 10)
+coeff <- data.frame(cbind(c(as.numeric(result_Plcgh[2,]),as.numeric(result_Plcgg[2,])),c(lable1,lable2)))
+CI <- data.frame(cbind(c(result_Plcgh[4,],result_Plcgg[4,]),c(result_Plcgh[3,],result_Plcgg[3,]),c(lable1,lable2)))
+
+d1 <- data.frame(cbind(coeff[,1],CI))
+x <- rep(row.names(d1[1:10,]),2)
+d1 <- data.frame(cbind(x,d1))
+names(d1) <- c("name","Coefficient","CI_up","CI_Low","method")
+d1$Coefficient=as.numeric(d1$Coefficient)
+d1$CI_Low = as.numeric(d1$CI_Low)
+d1$CI_up = as.numeric(d1$CI_up)
+d1$method = as.character(d1$method)
+
+hybrid_gcd_plcg <- d1
+
+ggplot(d1, aes(x=name, y=Coefficient,color=method))+geom_errorbar(width=.1, aes(ymin=CI_Low,ymax=CI_up),position = "dodge")+scale_x_discrete()+ coord_cartesian(ylim = c(-0.5,0.5))+geom_hline(yintercept = 0.2,color="grey",linetype="dashed")+geom_hline(yintercept = -0.2,color="grey",linetype="dashed")+theme(legend.title = element_blank())+theme(axis.title.x = element_blank())
+```
+
+```{r}
+### Plot hybrid vs GCD, PIP3
+lable1 <- rep("Hybrid", 10)
+lable2 <- rep("GCD", 10)
+coeff <- data.frame(cbind(c(as.numeric(result_PIP3h[2,]),as.numeric(result_PIP3g[2,])),c(lable1,lable2)))
+CI <- data.frame(cbind(c(result_PIP3h[4,],result_PIP3g[4,]),c(result_PIP3h[3,],result_PIP3g[3,]),c(lable1,lable2)))
+
+d1 <- data.frame(cbind(coeff[,1],CI))
+x <- rep(row.names(d1[1:10,]),2)
+d1 <- data.frame(cbind(x,d1))
+names(d1) <- c("name","Coefficient","CI_up","CI_Low","method")
+d1$Coefficient=as.numeric(d1$Coefficient)
+d1$CI_Low = as.numeric(d1$CI_Low)
+d1$CI_up = as.numeric(d1$CI_up)
+d1$method = as.character(d1$method)
+
+hybrid_gcd_pip3 <- d1
+
+ggplot(d1, aes(x=name, y=Coefficient,color=method))+geom_errorbar(width=.1, aes(ymin=CI_Low,ymax=CI_up),position = "dodge")+scale_x_discrete()+ coord_cartesian(ylim = c(-0.5,0.5))+geom_hline(yintercept = 0.2,color="grey",linetype="dashed")+geom_hline(yintercept = -0.2,color="grey",linetype="dashed")+theme(legend.title = element_blank())+theme(axis.title.x = element_blank())
+```
+
+
+
+## Combined Plot
+
+```{r}
+out <- rbind(hybrid_cd_plcg,hybrid_gcd_plcg[hybrid_gcd_plcg$method=="GCD",])
+
+p1 <- ggplot(out, aes(x=name,y=Coefficient,color=method))+
+  geom_errorbar(width=.35, aes(ymin=CI_Low,ymax=CI_up),position = "dodge",size=1)+
+  scale_x_discrete()+ coord_cartesian(ylim = c(-0.5,0.5))+
+  geom_hline(yintercept = 0.2,color="grey",linetype="dashed")+
+  geom_hline(yintercept = -0.2,color="grey",linetype="dashed")+
+  theme(legend.title = element_blank())+theme(axis.title.x = element_blank()) +
+  ylab("Causal Effect on Plcg") +
+    theme( # remove the vertical grid lines
+           panel.grid.major.x = element_blank() ,
+           # explicitly set the horizontal lines (or they will disappear too)
+           panel.grid.major.y = element_line( size=.1, color="white" ),
+           legend.position = c(0.9, 0.85))
+print(p1)
+
+
+out <- rbind(hybrid_cd_pip3,hybrid_gcd_pip3[hybrid_gcd_pip3$method=="GCD",])
+
+
+p2 <- ggplot(out, aes(x=name,y=Coefficient,color=method))+
+  geom_errorbar(width=.35, aes(ymin=CI_Low,ymax=CI_up),position = "dodge",size=1)+
+  scale_x_discrete()+ coord_cartesian(ylim = c(-0.5,0.5))+
+  geom_hline(yintercept = 0.2,color="grey",linetype="dashed")+
+  geom_hline(yintercept = -0.2,color="grey",linetype="dashed")+
+  theme(legend.title = element_blank())+theme(axis.title.x = element_blank()) +
+  ylab("Causal Effect on PIP3") +
+    theme( # remove the vertical grid lines
+           panel.grid.major.x = element_blank() ,
+           # explicitly set the horizontal lines (or they will disappear too)
+           panel.grid.major.y = element_line( size=.1, color="white" ),
+           legend.position = c(0.9, 0.85))
+print(p2)
+
+
+
+
+
+pdf("plcg.pdf",width=6,height=4)
+print(p1)
+dev.off()
+
+pdf("pip3.pdf",width=6,height=4)
+print(p2)
+dev.off()
+
+
+
+```
+
+# PIP2 Investigation
+
+
+```{r}
+lable <- rep("CD3/CD28", nrow(obs1t))
+lable_PIP2 <- rep("CD3/CD28+Psitectorigenin", nrow(con3t))
+d2 <- cbind(rbind(obs1t,con3t),condition=c(lable,lable_PIP2))
+d2 <- data.frame(d2)
+
+
+vs <- colnames(d2)
+vs <- vs[!(vs %in% c("PIP2","condition"))]
+
+for(ii in 1:length(vs)){
+  p <- ggplot(d2, aes_string(x="PIP2", y=vs[ii], color="condition")) +
+    geom_point() 
+  print(p)
+  print(eval(as.name(paste0("result_",vs[ii],"h"))))
+}
+```
