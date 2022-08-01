@@ -1,13 +1,4 @@
 ## tests of funcs.R
-## TODO
-## 1) compare GCD with CD in InvariantCausalPrediction Package
-##    on simulation in paper
-## 2) compare with own code
-## 3) for continuous and hybrid simulations, use funcs.R 
-##    implementation of GCD. make sure we get same results as now
-## 4) relationship between cDantzig function below and code in ICP package, are they different
-## 5) change section GenData function so that GCD is more stable
-## 6) why do GCD and cDantzig have different asymptotic variances for simulation
 rm(list=ls())
 source('funcs.R')
 library(ggplot2)
