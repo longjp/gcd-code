@@ -181,6 +181,44 @@ change_v %>%
   kable_styling()
 ```
 
+## Two sample t-test for observational vs experimental
+
+```{r}
+###### transformed
+## inhabit Akt
+t.test(obs1t$Akt,con1t$Akt, alternative = "two.sided")
+## inhabit Pkc
+t.test(obs1t$PKC,con2t$PKC, alternative = "two.sided")
+## inhabit pip2
+t.test(obs1t$PIP2,con3t$PIP2, alternative = "two.sided")
+## inhabit mek
+t.test(obs1t$Mek,con4t$Mek, alternative = "two.sided")
+
+
+#############
+## inhabit pip2, compare plcg and pip3
+t.test(obs1t$PIP3,con3t$PIP3, alternative = "two.sided")
+t.test(obs1t$Plcg,con3t$Plcg, alternative = "two.sided")
+
+## inhabit mek, compare raf
+t.test(obs1t$Raf,con4t$Raf, alternative = "two.sided")
+
+
+
+####### un-transformed
+## inhabit Akt
+t.test(obs1$Akt,con1$Akt, alternative = "two.sided")
+## inhabit Pkc
+t.test(obs1$PKC,con2$PKC, alternative = "two.sided")
+## inhabit pip2
+t.test(obs1$PIP2,con3$PIP2, alternative = "two.sided")
+## inhabit mek
+t.test(obs1$Mek,con4$Mek, alternative = "two.sided")
+
+```
+
+All the p values for two sample t-test are less than 2.2e-16.
+
 # Example 1: Interven PIP2
 
 In this section, we show 2 examples using the observational data and the experimental data which a reagent to inhibit PIP2 is applied. From the results of PNAS, Sachs, PIP2 may have causal effects on PIP3, Plcg and PKC.
